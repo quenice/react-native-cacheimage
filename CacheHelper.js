@@ -70,7 +70,7 @@ const getImagePath = async (originalUri) => {
  */
 const _fetchImage = async (originalUri) => {
     const {filename, directory} = getEncryptedInfo(originalUri)
-    const tmpPath = `${getTmpDir()}/${filename}`
+    const tmpPath = `${getTmpDir()}/${filename}${parseInt(Math.random(100) * 100)}${new Date().getMilliseconds()}`
     const response = await RNFetchBlob.config({
         fileCache: true,
         overwrite: true,
@@ -84,8 +84,12 @@ const _fetchImage = async (originalUri) => {
     const imageType = matchResult && matchResult.length >= 2 ? matchResult[1] : 'png'
     const cacheDir = `${getImagesCacheDirectory()}/${directory}`
     const cachePath = `${cacheDir}/${filename}.${imageType}`
-    await _moveImage(cacheDir, tmpPath, cachePath).catch()
-    await _saveCacheKey(originalUri, cachePath).catch()
+    const existsImage = await _moveImage(cacheDir, tmpPath, cachePath).catch()
+    if (existsImage) {
+        await fs.unlink(tmpPath).catch(e => console.log(e))
+    } else {
+        await _saveCacheKey(originalUri, cachePath).catch()
+    }
     return cachePath
 }
 
@@ -100,13 +104,15 @@ const _fetchImage = async (originalUri) => {
 const _moveImage = async (toDir, from, to) => {
     const exists = await fs.exists(to).catch()
     if (exists) {
-        await fs.unlink(to)
+        // await fs.unlink(to)
+        return true
     }
     const isDir = await fs.isDir(toDir).catch()
     if (!isDir) {
         await fs.mkdir(toDir).catch()
     }
     await fs.mv(from, to).catch()
+    return false
 }
 
 /**
@@ -239,8 +245,10 @@ const getCacheSizeFormat = async () => {
  */
 const clearCache = async () => {
     const path = getImagesCacheDirectory()
-    await fs.unlink(path)
-    await fs.mkdir(path)
+    await fs.unlink(path).catch()
+    await fs.mkdir(path).catch()
+    Object.assign(cacheEntity, {latest: true, cacheMap: {}})
+    await _syncCacheEntity2Storage().catch()
 }
 
 export default {
