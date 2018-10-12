@@ -8,10 +8,23 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
-    "react-native"
+    "react-native",
+    "cacheable image",
+    "cache image",
+    "cache",
+    "image",
+    "ios",
+    "android"
   ],
-  "author": "",
-  "license": "",
+  "author": {
+    "name": "quenice",
+    "email": "qiubing.it@gmail.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quenice/react-native-cacheimage.git"
+  },
   "devDependencies": {
     "rn-fetch-blob":"^0.10.13"
   }
