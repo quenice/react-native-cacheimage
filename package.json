@@ -1,0 +1,18 @@
+
+{
+  "name": "react-native-cacheimage",
+  "version": "0.0.1",
+  "description": "A cacheable image component for react native",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "react-native"
+  ],
+  "author": "",
+  "license": "",
+  "devDependencies": {
+    "rn-fetch-blob":"^0.10.13"
+  }
+}
