@@ -1,4 +1,4 @@
-import {AsyncStorage} from "react-native";
+import {AsyncStorage, DeviceEventEmitter} from "react-native";
 import CryptoJS from 'crypto-js'
 import RNFetchBlob from 'rn-fetch-blob'
 
@@ -11,10 +11,24 @@ const cacheEntity = {
     latest: false
 }
 
+// download image tasks
+const taskList = {}
+
+/**
+ * urls of downloading
+ * {'url':{ing:true, notify:true}}
+ */
+const downloading = {}
+
+const config = {
+    overwrite: false,
+    dirsQuantity: TOTAL_DIRECTORYS
+}
+
 /**
  * 加法hash算法
  * @param value md5字符串
- * @returns {number} 获得值为[0, TOTAL_DIRECTORYS - 1]
+ * @returns {number} 获得值为[0, dirsQuantity - 1]
  */
 const additiveHash = value => {
     let hash = 0
@@ -22,7 +36,7 @@ const additiveHash = value => {
     for (let v of chars) {
         hash += parseInt(`0x${v}`, 16)
     }
-    return hash % TOTAL_DIRECTORYS
+    return hash % config.dirsQuantity
 }
 
 /**
@@ -50,16 +64,16 @@ const getTmpDir = () => `${getImagesCacheDirectory()}/tmp`
  * @returns {Promise<*>}
  */
 const getImagePath = async (originalUri) => {
-    if (!originalUri) return undefined
-    await _syncStorage2CacheEntity(originalUri)
+    if (!originalUri) return {}
+    await _syncStorage2CacheEntity()
     let {cacheMap = {}} = cacheEntity
     const cachePath = cacheMap[originalUri]
     if (cachePath) {
-        const exists = await fs.exists(cachePath).catch()
-        if (exists) return cachePath
-        else return await _fetchImage(originalUri).catch()
+        const exists = await fs.exists(cachePath).catch(e => printLog(e))
+        if (exists) return {uri: cachePath}
+        else return await _fetchImage(originalUri).catch(e => printLog(e))
     }
-    return await _fetchImage(originalUri).catch()
+    return await _fetchImage(originalUri).catch(e => printLog(e))
 }
 
 /**
@@ -69,28 +83,54 @@ const getImagePath = async (originalUri) => {
  * @private
  */
 const _fetchImage = async (originalUri) => {
-    const {filename, directory} = getEncryptedInfo(originalUri)
-    const tmpPath = `${getTmpDir()}/${filename}${parseInt(Math.random(100) * 100)}${new Date().getMilliseconds()}`
-    const response = await RNFetchBlob.config({
-        fileCache: true,
-        overwrite: true,
-        path: tmpPath
-    }).fetch('GET', originalUri).catch()
-    console.log(response)
-    if (!response) return undefined
-    const info = response.info() || {}
-    const contentType = info.headers['Content-Type'] || ''
-    const matchResult = contentType.match(/image\/(png|jpg|jpeg|bmp|gif|webp|psd);/i)
-    const imageType = matchResult && matchResult.length >= 2 ? matchResult[1] : 'png'
-    const cacheDir = `${getImagesCacheDirectory()}/${directory}`
-    const cachePath = `${cacheDir}/${filename}.${imageType}`
-    const existsImage = await _moveImage(cacheDir, tmpPath, cachePath).catch()
-    if (existsImage) {
-        await fs.unlink(tmpPath).catch(e => console.log(e))
+    if (!downloading[originalUri]) {
+        downloading[originalUri] = {ing: true}
     } else {
-        await _saveCacheKey(originalUri, cachePath).catch()
+        downloading[originalUri].notify = true
+        return {}
     }
-    return cachePath
+
+    const {filename, directory} = getEncryptedInfo(originalUri)
+    const taskId = `${filename}${parseInt(Math.random(100) * 100)}${new Date().getMilliseconds()}`
+    const tmpPath = `${getTmpDir()}/${taskId}`
+    const task = RNFetchBlob.config({
+        path: tmpPath
+    }).fetch('GET', originalUri).catch(e => printLog(e))
+    taskList[taskId] = task
+    const response = await task.catch(e => printLog(e))
+    delete taskList[taskId]
+    printLog(response)
+    if (!response) return {}
+    const imageExtension = _getImageExtension(response)
+    const cacheDir = `${getImagesCacheDirectory()}/${directory}`
+    const cachePath = `${cacheDir}/${filename}.${imageExtension}`
+    const existsImage = await _moveImage(cacheDir, tmpPath, cachePath).catch(e => printLog(e))
+    await _saveCacheKey(originalUri, cachePath).catch(e => printLog(e))
+    if (existsImage) {
+        response.flush()
+    }
+
+    const downloadInfo = downloading[originalUri]
+    delete downloading[originalUri]
+    if (downloadInfo && downloadInfo.notify) {
+        DeviceEventEmitter.emit(event.render, originalUri, cachePath)
+    }
+
+    return {uri: cachePath, task}
+}
+
+/**
+ * create tmp dir just once
+ * @returns {Promise<void>}
+ * @private
+ */
+const _createTmpDir = async () => {
+    const rootDir = getImagesCacheDirectory()
+    const tmpDir = getTmpDir()
+    const isRootDirExists = await fs.isDir(rootDir).catch(e => printLog(e))
+    if (!isRootDirExists) await fs.mkdir(rootDir).catch(e => printLog(e))
+    const isTmpDirExists = await fs.isDir(tmpDir).catch(e => printLog(e))
+    if (!isTmpDirExists) await fs.mkdir(tmpDir).catch(e => printLog(e))
 }
 
 /**
@@ -102,16 +142,19 @@ const _fetchImage = async (originalUri) => {
  * @private
  */
 const _moveImage = async (toDir, from, to) => {
-    const exists = await fs.exists(to).catch()
+    const exists = await fs.exists(to).catch(e => printLog(e))
     if (exists) {
-        // await fs.unlink(to)
-        return true
+        if (config.overwrite) {
+            await fs.unlink(to)
+        } else {
+            return true
+        }
     }
-    const isDir = await fs.isDir(toDir).catch()
+    const isDir = await fs.isDir(toDir).catch(e => printLog(e))
     if (!isDir) {
-        await fs.mkdir(toDir).catch()
+        await fs.mkdir(toDir).catch(e => printLog(e))
     }
-    await fs.mv(from, to).catch()
+    await fs.mv(from, to).catch(e => console.log(e))
     return false
 }
 
@@ -122,7 +165,7 @@ const _moveImage = async (toDir, from, to) => {
  */
 const _syncStorage2CacheEntity = async () => {
     if (!cacheEntity || !cacheEntity.latest) {
-        let entity = await AsyncStorage.getItem(STORAGE_KEY).catch()
+        let entity = await AsyncStorage.getItem(STORAGE_KEY).catch(e => printLog(e))
         if (entity) {
             try {
                 entity = JSON.parse(entity)
@@ -144,11 +187,10 @@ const _syncStorage2CacheEntity = async () => {
  * @private
  */
 const _saveCacheKey = async (originalUri, cachePath) => {
-    await _syncStorage2CacheEntity().catch()
+    await _syncStorage2CacheEntity().catch(e => printLog(e))
     const {cacheMap = {}} = cacheEntity
     cacheMap[originalUri] = cachePath
-    Object.assign(cacheEntity, {cacheMap})
-    await _syncCacheEntity2Storage().catch()
+    await _syncCacheEntity2Storage().catch(e => printLog(e))
 }
 
 /**
@@ -158,16 +200,31 @@ const _saveCacheKey = async (originalUri, cachePath) => {
  */
 const _syncCacheEntity2Storage = async () => {
     if (cacheEntity) {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cacheEntity)).catch()
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cacheEntity)).catch(e => printLog(e))
     }
+}
+
+/**
+ * get image type
+ * @param response
+ * @returns {string}
+ * @private
+ */
+const _getImageExtension = (response) => {
+    const info = response.info() || {}
+    const contentType = info.headers['Content-Type'] || ''
+    const matchResult = contentType.match(/image\/(png|jpg|jpeg|bmp|gif|webp|psd);/i)
+    return matchResult && matchResult.length >= 2 ? matchResult[1] : 'png'
 }
 
 /**
  * register cache image service
  * @returns {Promise<void>}
  */
-const init = async () => {
-    let entity = await AsyncStorage.getItem(STORAGE_KEY).catch()
+const init = async (cacheConfig) => {
+    _createTmpDir().then().catch(e => printLog(e))
+    Object.assign(config, cacheConfig || {})
+    let entity = await AsyncStorage.getItem(STORAGE_KEY).catch(e => printLog(e))
     if (entity) {
         try {
             entity = JSON.parse(entity)
@@ -176,8 +233,19 @@ const init = async () => {
         }
     } else {
         entity = {}
+        await AsyncStorage.setItem(STORAGE_KEY, entity).catch(e => printLog(e))
     }
     Object.assign(cacheEntity, entity, {latest: true})
+}
+
+const unregister = async () => {
+    for (let key in taskList) {
+        try {
+            taskList[key].cancel()
+        } catch (e) {
+            printLog(e)
+        }
+    }
 }
 
 /**
@@ -245,16 +313,36 @@ const getCacheSizeFormat = async () => {
  */
 const clearCache = async () => {
     const path = getImagesCacheDirectory()
-    await fs.unlink(path).catch()
-    await fs.mkdir(path).catch()
-    Object.assign(cacheEntity, {latest: true, cacheMap: {}})
-    await _syncCacheEntity2Storage().catch()
+    await fs.unlink(path).catch(e => printLog(e))
+    await fs.mkdir(path).catch(e => printLog(e))
+    cacheEntity.latest = true
+    cacheEntity.cacheMap = {}
+    try {
+        for (let key in downloading) {
+            delete downloading[key]
+        }
+    } catch (e) {
+        printLog(e)
+    }
+
+    await _syncCacheEntity2Storage().catch(e => printLog(e))
+}
+
+const event = {
+    render: 'cacheimage_event_render_image'
+}
+
+const printLog = (v) => {
+    if (process.env.NODE_ENV !== 'production') console.log(v)
 }
 
 export default {
     init,
+    unregister,
     getCacheSize,
     getCacheSizeFormat,
     clearCache,
     getImagePath,
+    event,
+    printLog,
 }
