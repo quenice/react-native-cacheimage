@@ -233,7 +233,7 @@ const init = async (cacheConfig) => {
         }
     } else {
         entity = {}
-        await AsyncStorage.setItem(STORAGE_KEY, entity).catch(e => printLog(e))
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(entity)).catch(e => printLog(e))
     }
     Object.assign(cacheEntity, entity, {latest: true})
 }
