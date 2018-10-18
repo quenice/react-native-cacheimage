@@ -221,7 +221,7 @@ const _getImageExtension = (response) => {
  * register cache image service
  * @returns {Promise<void>}
  */
-const init = async (cacheConfig) => {
+const register = async (cacheConfig) => {
     _createTmpDir().then().catch(e => printLog(e))
     Object.assign(config, cacheConfig || {})
     let entity = await AsyncStorage.getItem(STORAGE_KEY).catch(e => printLog(e))
@@ -337,7 +337,7 @@ const printLog = (v) => {
 }
 
 export default {
-    init,
+    register,
     unregister,
     getCacheSize,
     getCacheSizeFormat,
