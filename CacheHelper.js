@@ -70,7 +70,7 @@ const getImagePath = async (originalUri) => {
     const cachePath = cacheMap[originalUri]
     if (cachePath) {
         const exists = await fs.exists(cachePath).catch(e => printLog(e))
-        if (exists) return {uri: cachePath}
+        if (exists) return {uri: `file://${cachePath}`}
         else return await _fetchImage(originalUri).catch(e => printLog(e))
     }
     return await _fetchImage(originalUri).catch(e => printLog(e))
@@ -113,10 +113,10 @@ const _fetchImage = async (originalUri) => {
     const downloadInfo = downloading[originalUri]
     delete downloading[originalUri]
     if (downloadInfo && downloadInfo.notify) {
-        DeviceEventEmitter.emit(event.render, originalUri, cachePath)
+        DeviceEventEmitter.emit(event.render, originalUri, `file://${cachePath}`)
     }
 
-    return {uri: cachePath, task}
+    return {uri: `file://${cachePath}`, task}
 }
 
 /**
