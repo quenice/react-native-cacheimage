@@ -64,13 +64,13 @@ const getTmpDir = () => `${getImagesCacheDirectory()}/tmp`
  * @returns {Promise<*>}
  */
 const getImagePath = async (originalUri) => {
-    if (!originalUri) return {}
+    if (!originalUri) return
     await _syncStorage2CacheEntity()
     let {cacheMap = {}} = cacheEntity
     const cachePath = cacheMap[originalUri]
     if (cachePath) {
         const exists = await fs.exists(cachePath).catch(e => printLog(e))
-        if (exists) return {uri: `file://${cachePath}`}
+        if (exists) return `file://${cachePath}`
         else return await _fetchImage(originalUri).catch(e => printLog(e))
     }
     return await _fetchImage(originalUri).catch(e => printLog(e))
@@ -87,7 +87,7 @@ const _fetchImage = async (originalUri) => {
         downloading[originalUri] = {ing: true}
     } else {
         downloading[originalUri].notify = true
-        return {}
+        return
     }
 
     const {filename, directory} = getEncryptedInfo(originalUri)
@@ -100,7 +100,7 @@ const _fetchImage = async (originalUri) => {
     const response = await task.catch(e => printLog(e))
     delete taskList[taskId]
     printLog(response)
-    if (!response) return {}
+    if (!response) return
     const imageExtension = _getImageExtension(response)
     const cacheDir = `${getImagesCacheDirectory()}/${directory}`
     const cachePath = `${cacheDir}/${filename}.${imageExtension}`
@@ -116,7 +116,7 @@ const _fetchImage = async (originalUri) => {
         DeviceEventEmitter.emit(event.render, originalUri, `file://${cachePath}`)
     }
 
-    return {uri: `file://${cachePath}`, task}
+    return `file://${cachePath}`
 }
 
 /**
@@ -329,7 +329,11 @@ const clearCache = async () => {
 }
 
 const event = {
-    render: 'cacheimage_event_render_image'
+    render: 'cacheimage_event_render_image',
+}
+
+const pattern = {
+    remoteUri: /^(http[s]?)/i
 }
 
 const printLog = (v) => {
@@ -344,5 +348,6 @@ export default {
     clearCache,
     getImagePath,
     event,
+    pattern,
     printLog,
 }
